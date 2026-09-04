@@ -1,4 +1,4 @@
-"""LLM-based course lecture summarization via ModelScope API."""
+"""LLM-based course lecture summarization."""
 
 import time
 
@@ -6,7 +6,8 @@ from openai import OpenAI
 
 from src.runtime import config
 
-SYSTEM_PROMPT= r"""你是一个专业的课程助教。你的任务是根据用户提供的课程录音文本和ppt文字ocr部分，生成用于学生自学和期末复习的详细笔记。
+
+SYSTEM_PROMPT = r"""你是一个专业的课程助教。你的任务是根据用户提供的课程录音文本和ppt文字ocr部分，生成用于学生自学和期末复习的详细笔记。
 1. **直接输出**：不要包含任何"好的"、"没问题"、"以下是总结"等客套话，不要输出全局课程名称大标题（由系统自动生成），直接开始总结即可。
 2. **文本清洗**：语言必须通顺、逻辑清晰，严格去除口语化表达、重复句和无意义的录音识别错误等。内容可能被识别成同音字，需要通过学术语境修复。
 3. **格式严格**：
@@ -67,113 +68,192 @@ SYSTEM_PROMPT= r"""你是一个专业的课程助教。你的任务是根据用�
    - 同时，需要注意的是，由于该平台以屏幕截图的方式记录ppt，因此，尽管我们提供的ocr版本已经尽最大努力进行了清洗，你收到的ppt仍然可能有无关网页、导航栏、桌面或系统页面等无关噪音。这些噪音不应被用于课程内容的总结。
    - 输出仍按之前的格式要求，不要保留时间戳标签，只把这些信息当作上下文辅助理解，不用说哪些来自转写哪些来自ppt，自然地合并录音转写和ppt中的知识，生成高质量笔记。"""
 
+
 class Summarizer:
     """Course lecture summarizer with multi-provider fallback.
 
     Iterates config.MODEL_PROVIDERS in declared order. Within each provider,
     tries each model in declared order. Returns the first successful result.
-    Setting only DASHSCOPE_API_KEY still works because the default
-    MODEL_PROVIDERS list ships a modelscope entry that reads it.
+
+    DeepSeek official API supports selectable model and reasoning effort via
+    runtime configuration.
     """
 
     def __init__(self):
         self.providers = config.resolve_model_providers()
+
         if not self.providers:
             raise ValueError(
                 "No model provider available. "
-                "Set at least one provider's API key (e.g. DASHSCOPE_API_KEY)."
+                "Set at least one provider's API key "
+                "(e.g. DEEPSEEK_API_KEY or DASHSCOPE_API_KEY)."
             )
+
         self._clients = {
-            p["name"]: OpenAI(api_key=p["api_key"], base_url=p["base_url"])
-            for p in self.providers
+            provider["name"]: OpenAI(
+                api_key=provider["api_key"],
+                base_url=provider["base_url"],
+            )
+            for provider in self.providers
         }
 
-    def _call_llm(self, client: OpenAI, model: str,
-                  title: str, content: str) -> str:
+    def _call_llm(
+        self,
+        client: OpenAI,
+        model: str,
+        title: str,
+        content: str,
+    ) -> str:
+        """Call one LLM model and return a non-empty summary."""
+
         t0 = time.time()
+
         request_kwargs = {
-          "model": model,
-          "messages": [
-              {"role": "system", "content": SYSTEM_PROMPT},
-              {
-                  "role": "user",
-                  # 注意：这里的 1:7 与 system prompt 中声称的 1:8 不一致是有意为之
-                  # （给模型一个略偏长的信号修正其实际输出偏短的倾向），勿"修复"。
-                  "content": f"以下是课程《{title}》的录音文本，根据长度，你应该输出的字符数大约为{len(content) // 7}字，请开始总结：\n\n{content}",
-              },
-          ],
-          "timeout": 180,
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT,
+                },
+                {
+                    "role": "user",
+                    # 注意：这里的 1:7 与 system prompt 中声称的 1:8
+                    # 不一致是有意为之，用略偏长的目标修正模型实际输出偏短的倾向。
+                    "content": (
+                        f"以下是课程《{title}》的录音文本，根据长度，"
+                        f"你应该输出的字符数大约为{len(content) // 7}字，"
+                        f"请开始总结：\n\n{content}"
+                    ),
+                },
+            ],
+            "timeout": 180,
         }
 
-      # Only the official DeepSeek endpoint uses these DeepSeek-specific options.
-      # ModelScope and other OpenAI-compatible providers are left untouched.
+        # DeepSeek 官方 API 专属配置。
+        #
+        # deepseek-v4-flash / deepseek-v4-pro 默认启用思考模式，
+        # 这里显式开启，并根据 config.py 中的设置控制推理强度。
+        #
+        # ModelScope 等其他 OpenAI-compatible provider 不会进入这里，
+        # 因此不会收到 DeepSeek 官方接口专属参数。
         if model in ("deepseek-v4-flash", "deepseek-v4-pro"):
-          request_kwargs["extra_body"] = {
-              "thinking": {"type": "enabled"},
-              "reasoning_effort": config.DEEPSEEK_REASONING_EFFORT,
-        }
+            request_kwargs["reasoning_effort"] = (
+                config.DEEPSEEK_REASONING_EFFORT
+            )
+            request_kwargs["extra_body"] = {
+                "thinking": {
+                    "type": "enabled",
+                }
+            }
 
+        # 真正调用模型 API。
+        response = client.chat.completions.create(**request_kwargs)
+
+        # API 请求成功并不代表一定返回了有效内容。
         if not response.choices:
             raise ValueError(
-               "API returned empty choices — likely content filter or quota exceeded"
-        )
+                "API returned empty choices — "
+                "likely content filter, quota, or provider error"
+            )
 
         result = response.choices[0].message.content
 
-        # A request can succeed at the HTTP/API level but still return an empty
-        # assistant message.  An empty summary must be treated as a failure so the
-        # provider/model fallback and the lecture retry mechanism can take over.
+        # 修复旧版本 Bug：
+        # 如果模型返回 None、空字符串或纯空白，
+        # 必须视为调用失败，不能将该课次标记为处理完成。
+        #
+        # 异常会被 summarize() 捕获，并继续尝试备用 provider/model；
+        # 如果全部失败，则 LectureRunner 会保留该课次供以后重试。
         if not result or not result.strip():
             raise ValueError("API returned an empty summary")
 
         result = result.strip()
         elapsed = time.time() - t0
-       
-        # Token usage helps explain run cost — every provider's billing is
-        # token-based, and rate-limit decisions key off prompt size much
-        # more than character count.  Some providers (OpenAI-compatible)
-        # leave usage None on streaming or error paths, so fall back to a
-        # plain "no usage" line so the summary still prints.
+
+        # 输出 token 使用情况，便于判断成本与调用规模。
         usage = getattr(response, "usage", None)
+
         if usage is not None:
+            prompt_tokens = getattr(
+                usage,
+                "prompt_tokens",
+                "?",
+            )
+            completion_tokens = getattr(
+                usage,
+                "completion_tokens",
+                "?",
+            )
+
             print(
                 f"[Summarizer] Done ({model}): "
-                f"{len(content)} chars input → {len(result)} chars output"
-                f" in {elapsed:.0f}s "
-                f"(tokens: prompt={getattr(usage,'prompt_tokens','?')}, "
-                f"completion={getattr(usage,'completion_tokens','?')})"
+                f"{len(content)} chars input → "
+                f"{len(result)} chars output "
+                f"in {elapsed:.0f}s "
+                f"(tokens: prompt={prompt_tokens}, "
+                f"completion={completion_tokens})"
             )
         else:
             print(
-                f"[Summarizer] Done ({model}): {len(content)} chars input"
-                f" → {len(result)} chars output in {elapsed:.0f}s"
+                f"[Summarizer] Done ({model}): "
+                f"{len(content)} chars input → "
+                f"{len(result)} chars output "
+                f"in {elapsed:.0f}s"
             )
+
         return result
 
-    def summarize(self, title: str, content: str) -> tuple[str, str]:
-        """Summarize lecture, trying providers in MODEL_PROVIDERS order.
+    def summarize(
+        self,
+        title: str,
+        content: str,
+    ) -> tuple[str, str]:
+        """Summarize lecture, trying providers in configured order.
 
-        Returns (summary, model_used) where model_used is "{provider}/{model}".
+        Returns:
+            (summary, model_used)
+
+            model_used format:
+            "{provider}/{model}"
 
         Raises:
-            RuntimeError: if all providers/models fail.
+            RuntimeError:
+                If every configured provider/model fails.
         """
+
         if not content or not content.strip():
             return ("（内容为空）", "")
 
         errors = []
+
         for provider in self.providers:
             client = self._clients[provider["name"]]
+
             for model in provider["models"]:
                 model_id = f"{provider['name']}/{model}"
+
                 try:
-                    result = self._call_llm(client, model, title, content)
+                    result = self._call_llm(
+                        client,
+                        model,
+                        title,
+                        content,
+                    )
+
                     return (result, model_id)
-                except Exception as e:
-                    print(f"[Summarizer] {model_id} failed: "
-                          f"{type(e).__name__}: {e}")
-                    errors.append(f"{model_id}: {e}")
+
+                except Exception as exc:
+                    print(
+                        f"[Summarizer] {model_id} failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+
+                    errors.append(
+                        f"{model_id}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
 
         raise RuntimeError(
-            "All LLM models failed:\n" + "\n".join(errors)
+            "All LLM models failed:\n"
+            + "\n".join(errors)
         )
