@@ -187,28 +187,28 @@ class Database:
             return True
         except sqlite3.IntegrityError:
             return False
-    
-    def get_processed_sub_ids(self, course_id: str) -> set[str]:
-    """Return sub_ids that have been fully processed.
 
-    A lecture with a non-empty transcript but an empty summary is considered
-    incomplete even if an older run accidentally set processed_at.
-    """
-    with self._lock:
-        rows = self.conn.execute(
-            """
-            SELECT sub_id
-            FROM lectures
-            WHERE course_id = ?
-              AND processed_at IS NOT NULL
-              AND (
-                    COALESCE(TRIM(summary), '') <> ''
-                    OR COALESCE(TRIM(transcript), '') = ''
-                  )
-            """,
-            (course_id,),
-        ).fetchall()
-    return {row["sub_id"] for row in rows}
+    def get_processed_sub_ids(self, course_id: str) -> set[str]:
+        """Return sub_ids that have been fully processed.
+
+        A lecture with a non-empty transcript but an empty summary is considered
+        incomplete even if an older run accidentally set processed_at.
+        """
+        with self._lock:
+            rows = self.conn.execute(
+                """
+                SELECT sub_id
+                FROM lectures
+                WHERE course_id = ?
+                    AND processed_at IS NOT NULL
+                    AND (
+                        COALESCE(TRIM(summary), '') <> ''
+                        OR COALESCE(TRIM(transcript), '') = ''
+                        )
+                """,
+                (course_id,),
+            ).fetchall()
+        return {row["sub_id"] for row in rows}
    
 
     def get_unprocessed_lectures(self, course_id: str | None = None,
