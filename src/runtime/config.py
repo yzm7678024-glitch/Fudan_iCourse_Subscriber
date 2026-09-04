@@ -18,7 +18,23 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
+# DeepSeek runtime selection.
+# Can be overridden by GitHub Actions inputs.
+DEEPSEEK_MODEL = os.environ.get(
+    "DEEPSEEK_MODEL",
+    "deepseek-v4-flash",
+).strip()
 
+DEEPSEEK_REASONING_EFFORT = os.environ.get(
+    "DEEPSEEK_REASONING_EFFORT",
+    "high",
+).strip().lower()
+
+if DEEPSEEK_MODEL not in ("deepseek-v4-flash", "deepseek-v4-pro"):
+    DEEPSEEK_MODEL = "deepseek-v4-flash"
+
+if DEEPSEEK_REASONING_EFFORT not in ("low", "high", "max"):
+    DEEPSEEK_REASONING_EFFORT = "high"
 # 模型服务商配置（按列表顺序作为优先级，从前往后尝试）。
 # 用户可以在这里随意添加/删除/重排服务商和模型。
 # 兼容性：只设置 DASHSCOPE_API_KEY 也能跑（modelscope 项的 api_key 直接读取它）。
@@ -41,7 +57,7 @@ MODEL_PROVIDERS: list[dict] = [
         "base_url_env": "DEEPSEEK_BASE_URL",
         "default_base_url": "https://api.deepseek.com/v1",
         "models": [
-            "deepseek-v4-flash"
+            DEEPSEEK_MODEL
         ],
     },
     # {
