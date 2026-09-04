@@ -91,20 +91,28 @@ class Summarizer:
     def _call_llm(self, client: OpenAI, model: str,
                   title: str, content: str) -> str:
         t0 = time.time()
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    # 注意：这里的 1:7 与 system prompt 中声称的 1:8 不一致是有意为之
-                    # （给模型一个略偏长的信号修正其实际输出偏短的倾向），勿"修复"。
-                    "content": f"以下是课程《{title}》的录音文本，根据长度，你应该输出的字符数大约为{len(content) // 7}字，请开始总结：\n\n{content}",
-                },
-            ],
-            # temperature=0.3,
-            timeout=180,
-        )
+        request_kwargs = {
+          "model": model,
+          "messages": [
+              {"role": "system", "content": SYSTEM_PROMPT},
+              {
+                  "role": "user",
+                  # 注意：这里的 1:7 与 system prompt 中声称的 1:8 不一致是有意为之
+                  # （给模型一个略偏长的信号修正其实际输出偏短的倾向），勿"修复"。
+                  "content": f"以下是课程《{title}》的录音文本，根据长度，你应该输出的字符数大约为{len(content) // 7}字，请开始总结：\n\n{content}",
+              },
+          ],
+          "timeout": 180,
+        }
+
+      # Only the official DeepSeek endpoint uses these DeepSeek-specific options.
+      # ModelScope and other OpenAI-compatible providers are left untouched.
+        if model in ("deepseek-v4-flash", "deepseek-v4-pro"):
+          request_kwargs["extra_body"] = {
+              "thinking": {"type": "enabled"},
+              "reasoning_effort": config.DEEPSEEK_REASONING_EFFORT,
+        }
+
         if not response.choices:
             raise ValueError(
                "API returned empty choices — likely content filter or quota exceeded"
