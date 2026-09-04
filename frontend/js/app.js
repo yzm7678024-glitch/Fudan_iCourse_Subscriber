@@ -257,7 +257,7 @@ document.addEventListener("alpine:init", () => {
     searchPage: 1, searchHasMore: false,
     searchDomains: { summary: true, transcript: true, ocr: true },
     commitSha: null,
-    setup: { token: "", stuid: "", uispsw: "" },
+    setup: { token: "", dbsecret: "" },
     setupError: "", setupTesting: false,
     settingsForm: {}, showSecrets: {},
     exportDialogOpen: false, exportSelection: {}, exportingPdf: false,
@@ -747,7 +747,7 @@ document.addEventListener("alpine:init", () => {
       }
       indexedDB.deleteDatabase(_idbName);
       this.view = "setup";
-      this.setup = { token: "", stuid: "", uispsw: "" };
+      this.setup = { token: "", dbsecret: "" };
     },
 
     // ── Subscriptions editor (three-column) ──────────────────────────
