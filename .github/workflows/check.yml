@@ -101,6 +101,7 @@ jobs:
       - name: Decode database
         if: hashFiles('data/sharded/icourse-index.enc', 'data/icourse.db.gz.enc', 'data/icourse.db.enc') != ''
         env:
+          DB_SECRET: ${{ secrets.DB_SECRET }}
           STUID: ${{ secrets.STUID }}
           UISPSW: ${{ secrets.UISPSW }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
@@ -184,16 +185,11 @@ jobs:
       - name: Deploy database to data branch
         if: always()
         env:
-          STUID: ${{ secrets.STUID }}
-          UISPSW: ${{ secrets.UISPSW }}
+          DB_SECRET: ${{ secrets.DB_SECRET }}
           COURSE_IDS: ${{ secrets.COURSE_IDS }}
-          # Persisted by the sharder into meta('subscribed_course_ids')
-          # so single_run.yml / delete_course.yml (which run with a
-          # different or no COURSE_IDS) still know the user's real
-          # subscription and don't reclassify everything as cold.
+
           SUBSCRIBED_COURSE_IDS: ${{ secrets.COURSE_IDS }}
-          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ ! -f data/icourse.db ]; then
