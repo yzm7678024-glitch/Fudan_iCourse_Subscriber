@@ -216,15 +216,13 @@
 
       <!-- 4 Secrets -->
       <div>
-        <label class="block text-xs text-gray-500 mb-1">STUID (Student ID)</label>
-        <input x-model="setup.stuid" type="text" placeholder="22307110xxx"
-               class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 focus:outline-none">
-      </div>
-      <div>
-        <label class="block text-xs text-gray-500 mb-1">UISPSW (UIS Password)</label>
-        <input x-model="setup.uispsw" type="password"
-               class="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 focus:outline-none">
-      </div>
+          <label class="block text-xs text-gray-500 mb-1">DB_SECRET (Database Password)</label>
+          <input x-model="setup.dbsecret" type="password" placeholder="Enter your DB_SECRET"
+              class="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-blue-300 focus:outline-none">
+          <p class="text-xs text-gray-400 mt-1">
+              Used only to decrypt your course database. This is not your UIS password.
+          </p>
+     </div>
 
       <!-- Advanced -->
       <details class="text-sm">
@@ -735,8 +733,7 @@
     <div class="space-y-3">
       <template x-for="field in [
         {key: 'token', label: 'GitHub PAT'},
-        {key: 'stuid', label: 'STUID'},
-        {key: 'uispsw', label: 'UISPSW'},
+        {key: 'dbsecret', label: 'DB_SECRET'},
       ]" :key="field.key">
         <div>
           <label class="block text-xs text-gray-500 mb-1" x-text="field.label"></label>
