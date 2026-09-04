@@ -7,12 +7,32 @@ on:
         description: "Comma-separated course IDs to process (e.g. 30004,30005)"
         required: true
         type: string
+
+      deepseek_model:
+        description: "DeepSeek model"
+        required: true
+        default: "deepseek-v4-flash"
+        type: choice
+        options:
+          - deepseek-v4-flash
+          - deepseek-v4-pro
+
+      deepseek_reasoning_effort:
+        description: "DeepSeek reasoning effort"
+        required: true
+        default: "high"
+        type: choice
+        options:
+          - low
+          - high
+          - max
+
       use_official_transcript:
         description: "Use official iCourse transcripts instead of ASR"
         required: false
         default: false
         type: boolean
-
+        
 permissions:
   contents: write
 
@@ -165,6 +185,9 @@ jobs:
 
           COURSE_IDS: ${{ inputs.course_ids }}
           USE_OFFICIAL_TRANSCRIPT: ${{ inputs.use_official_transcript && '1' || '' }}
+
+          DEEPSEEK_MODEL: ${{ inputs.deepseek_model }}
+          DEEPSEEK_REASONING_EFFORT: ${{ inputs.deepseek_reasoning_effort }}
 
           SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
