@@ -86,6 +86,7 @@ jobs:
 
       - name: Decode database
         env:
+          DB_SECRET: ${{ secrets.DB_SECRET }}
           STUID: ${{ secrets.STUID }}
           UISPSW: ${{ secrets.UISPSW }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
