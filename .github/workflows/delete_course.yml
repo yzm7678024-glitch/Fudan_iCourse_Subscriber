@@ -40,8 +40,7 @@ jobs:
 
       - name: Fetch and decrypt database
         env:
-          STUID: ${{ secrets.STUID }}
-          UISPSW: ${{ secrets.UISPSW }}
+          DB_SECRET: ${{ secrets.DB_SECRET }}
         run: |
           git fetch origin data --depth=1
           mkdir -p data/sharded/shards
@@ -97,8 +96,7 @@ jobs:
 
       - name: Re-shard and push
         env:
-          STUID: ${{ secrets.STUID }}
-          UISPSW: ${{ secrets.UISPSW }}
+          DB_SECRET: ${{ secrets.DB_SECRET }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Shard into a fresh directory — data/sharded still holds the
