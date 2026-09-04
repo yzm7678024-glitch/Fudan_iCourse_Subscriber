@@ -106,9 +106,21 @@ class Summarizer:
             timeout=180,
         )
         if not response.choices:
-            raise ValueError("API returned empty choices — likely content filter or quota exceeded")
+            raise ValueError(
+               "API returned empty choices — likely content filter or quota exceeded"
+        )
+
         result = response.choices[0].message.content
+
+        # A request can succeed at the HTTP/API level but still return an empty
+        # assistant message.  An empty summary must be treated as a failure so the
+        # provider/model fallback and the lecture retry mechanism can take over.
+        if not result or not result.strip():
+            raise ValueError("API returned an empty summary")
+
+        result = result.strip()
         elapsed = time.time() - t0
+       
         # Token usage helps explain run cost — every provider's billing is
         # token-based, and rate-limit decisions key off prompt size much
         # more than character count.  Some providers (OpenAI-compatible)
