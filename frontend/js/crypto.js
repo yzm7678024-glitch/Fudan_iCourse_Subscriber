@@ -7,10 +7,11 @@
  *   Bytes 16+:   AES-256-CBC ciphertext (PKCS7 padded)
  *
  * Two key flavors:
- *   v2:     password = sha256("ICSv2:" + stuid + ":" + uispsw)  (hex)
- *           PBKDF2 iterations: 100000
- *   legacy: password = stuid + uispsw + dashscope + smtp        (concat)
- *           PBKDF2 iterations: 10000
+ * 
+ * v2: password = DB_SECRET
+ * PBKDF2 iterations: 100000
+ * legacy: password = stuid + uispsw + dashscope + smtp (concat)
+ * PBKDF2 iterations: 10000
  *
  * Derivation:
  *   PBKDF2-HMAC-SHA256(password, salt, iterations, dkLen=48)
@@ -90,7 +91,10 @@ async function _icsEncrypt(plainBytes, password, iterations) {
 }
 
 async function _icsBuildPasswordV2(secrets) {
-  return await _sha256Hex("ICSv2:" + secrets.stuid + ":" + secrets.uispsw);
+    if (!secrets.dbsecret) {
+        throw new Error("DB_SECRET is required");
+    }
+    return secrets.dbsecret;
 }
 
 function _icsBuildPasswordLegacy(secrets) {
