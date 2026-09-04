@@ -5,7 +5,7 @@ Usage:
     python scripts/db_shard.py shard      <db_path>    <output_dir>
     python scripts/db_shard.py reassemble <input_dir>  <db_path>
 
-Reads the v2 password from STUID + UISPSW env vars. Both subcommands
+Reads the database encryption password from the DB_SECRET env var.
 operate on the layout produced by `src.sharder`:
     <dir>/icourse-index.enc
     <dir>/shards/shard-NNNN.db.gz.enc
@@ -18,7 +18,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data.crypto_box import derive_new_password
 from src.data.sharder import (
     INDEX_FILENAME,
     SHARDS_DIR,
@@ -29,12 +28,11 @@ from src.data.sharder import (
 
 
 def _password() -> str:
-    stuid = os.environ.get("STUID") or os.environ.get("StuId", "")
-    uispsw = os.environ.get("UISPSW") or os.environ.get("UISPsw", "")
-    if not stuid or not uispsw:
-        print("error: STUID and UISPSW env vars required", file=sys.stderr)
+    db_secret = os.environ.get("DB_SECRET", "")
+    if not db_secret:
+        print("error: DB_SECRET env var required", file=sys.stderr)
         sys.exit(2)
-    return derive_new_password(stuid, uispsw)
+    return db_secret
 
 
 def _cmd_shard(db_path: str, output_dir: str):
