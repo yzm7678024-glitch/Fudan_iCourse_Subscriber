@@ -162,20 +162,6 @@ jobs:
             echo "hash=none" >> $GITHUB_OUTPUT
           fi
 
-      - name: Verify course AI routing
-        env:
-          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
-          DEEPSEEK_REASONING_EFFORT: ${{ vars.DEEPSEEK_REASONING_EFFORT || 'high' }}
-          COURSE_AI_OVERRIDES: ${{ vars.COURSE_AI_OVERRIDES }}
-        run: |
-          python - <<'PY'
-          from src.runtime import config
-
-          for course_id in ("33291", "37861", "39565"):
-              model, effort = config.get_course_ai_settings(course_id)
-              print(f"[AI TEST] {course_id} -> {model} + {effort}")
-          PY
-
       - name: Run
         timeout-minutes: 350
         env:
