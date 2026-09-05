@@ -170,6 +170,9 @@ jobs:
           COURSE_IDS: ${{ secrets.COURSE_IDS }}
           CRAWL_TERM: ${{ secrets.CRAWL_TERM }}
 
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-v4-flash' }}
+          DEEPSEEK_REASONING_EFFORT: ${{ vars.DEEPSEEK_REASONING_EFFORT || 'high' }}
+
           SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
