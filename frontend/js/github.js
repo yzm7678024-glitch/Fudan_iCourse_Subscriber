@@ -246,6 +246,75 @@ async function _triggerSingleRunWorkflow(owner, repo, ref, token, courseIds, use
   throw new Error(`GitHub API error ${res.status}: ${body}`);
 }
 
+async function _triggerRegenerateWorkflow(
+  owner,
+  repo,
+  ref,
+  token,
+  courseId,
+  subId,
+  model,
+  reasoningEffort
+) {
+  const url =
+    `${_GH_API}/repos/${owner}/${repo}` +
+    `/actions/workflows/regenerate_lecture.yml/dispatches`;
+
+  if (!courseId) {
+    throw new Error("Course ID is required");
+  }
+
+  if (!subId) {
+    throw new Error("Lecture sub_id is required");
+  }
+
+  const inputs = {
+    course_id: String(courseId),
+    sub_id: String(subId),
+    deepseek_model: model || "deepseek-v4-flash",
+    deepseek_reasoning_effort: reasoningEffort || "high",
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      ..._ghHeaders(token),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ref: ref || "main",
+      inputs,
+    }),
+  });
+
+  if (res.status === 204) {
+    return;
+  }
+
+  const body = await res.text();
+
+  if (res.status === 403 || res.status === 404) {
+    throw new Error(
+      "无法触发重新生成 workflow。请确认 GitHub PAT 已开启 " +
+      "Actions: Read and write 权限，并确认 regenerate_lecture.yml " +
+      `存在于分支 '${ref || "main"}'。服务端返回：` +
+      `${res.status} ${body}`
+    );
+  }
+
+  if (res.status === 422) {
+    throw new Error(
+      "触发重新生成失败 (422)：通常是 workflow inputs 不匹配，" +
+      "或 regenerate_lecture.yml 不存在于指定分支。服务端返回：" +
+      body
+    );
+  }
+
+  throw new Error(
+    `GitHub API error ${res.status}: ${body}`
+  );
+}
+
 async function _triggerDeleteWorkflow(owner, repo, ref, token, courseIds, subIds) {
   const url = `${_GH_API}/repos/${owner}/${repo}/actions/workflows/delete_course.yml/dispatches`;
   const ids = (Array.isArray(courseIds) ? courseIds : [])
@@ -325,6 +394,7 @@ window.ICS.github = {
   triggerExportWorkflow: _triggerExportWorkflow,
   triggerDeleteWorkflow: _triggerDeleteWorkflow,
   triggerSingleRunWorkflow: _triggerSingleRunWorkflow,
+  triggerRegenerateWorkflow: _triggerRegenerateWorkflow,
   getRepoPublicKey: _getRepoPublicKey,
   putRepoSecret: _putRepoSecret,
   setCourseIdsSecret: _setCourseIdsSecret,
