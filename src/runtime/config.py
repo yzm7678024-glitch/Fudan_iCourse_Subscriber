@@ -185,6 +185,13 @@ USE_OFFICIAL_TRANSCRIPT = (
     os.environ.get("USE_OFFICIAL_TRANSCRIPT", "").strip().lower()
     in ("1", "true", "yes")
 )
+# 指定需要强制重新生成笔记的课次 sub_id。
+# 正常自动运行时为空；Viewer 手动点击“重新生成”时由 workflow 临时传入。
+REGENERATE_SUB_IDS = {
+    sub_id.strip()
+    for sub_id in os.environ.get("REGENERATE_SUB_IDS", "").split(",")
+    if sub_id.strip()
+}
 
 # 监控的课程 ID 列表
 COURSE_IDS = [
