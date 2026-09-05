@@ -262,6 +262,13 @@ document.addEventListener("alpine:init", () => {
     settingsForm: {}, showSecrets: {},
     exportDialogOpen: false, exportSelection: {}, exportingPdf: false,
     deleteDialogOpen: false, deleteSelection: {}, deletingCourses: false,
+
+    // Single-lecture regeneration dialog.
+    regenerateDialogOpen: false,
+    regenerateModel: "deepseek-v4-flash",
+    regenerateReasoningEffort: "high",
+    regenerateTriggering: false,
+    
     repoOwner: "", repoName: "", dataBranch: "data",
     _history: [],
     /* Subscriptions editor state — three-column layout:
@@ -376,6 +383,7 @@ document.addEventListener("alpine:init", () => {
       }
       this.view = view;
       if (view !== "lectures") this.exportDialogOpen = false;
+      if (view !== "detail") this.regenerateDialogOpen = false;
     },
     _sortCoursesByStar(list) {
       // Stable two-key sort: starred first (descending = pinned), then
@@ -462,7 +470,80 @@ document.addEventListener("alpine:init", () => {
       return "切换到" + _DETAIL_VIEW_LABEL[next];
     },
     formatPptTimestamp(sec) { return _formatTimestamp(sec); },
+        /* ── Single-lecture regeneration ─────────────────────────────── */
+    openRegenerateDialog() {
+      if (!this.currentLecture) {
+        this._toast("当前没有可重新生成的课次", "error");
+        return;
+      }
 
+      // Always start from the normal daily default.
+      this.regenerateModel = "deepseek-v4-flash";
+      this.regenerateReasoningEffort = "high";
+      this.regenerateDialogOpen = true;
+    },
+
+    closeRegenerateDialog() {
+      if (this.regenerateTriggering) return;
+      this.regenerateDialogOpen = false;
+    },
+
+    async confirmRegenerate() {
+      if (this.regenerateTriggering) return;
+
+      const creds = _loadCreds();
+
+      if (!creds?.token) {
+        this._toast("未登录或 GitHub PAT 缺失", "error");
+        return;
+      }
+
+      if (!this.currentLecture) {
+        this._toast("当前没有可重新生成的课次", "error");
+        return;
+      }
+
+      const courseId =
+        this.currentLecture.course_id ||
+        this.currentCourse?.course_id;
+
+      const subId = this.currentLecture.sub_id;
+
+      if (!courseId || !subId) {
+        this._toast("无法确定 Course ID 或 lecture sub_id", "error");
+        return;
+      }
+
+      this.regenerateTriggering = true;
+
+      try {
+        await ICS.github.triggerRegenerateWorkflow(
+          this.repoOwner,
+          this.repoName,
+          "main",
+          creds.token,
+          String(courseId),
+          String(subId),
+          this.regenerateModel,
+          this.regenerateReasoningEffort,
+        );
+
+        this.regenerateDialogOpen = false;
+
+        this._toast(
+          "已触发重新生成。完成后会收到新邮件，稍后刷新页面即可查看最新版。",
+          "success",
+        );
+      } catch (e) {
+        this._toast(
+          e?.message || "触发重新生成失败",
+          "error",
+        );
+      } finally {
+        this.regenerateTriggering = false;
+      }
+    },
+    
     getExportableLectures() {
       return (this.lectures || []).filter((lec) => lec.summary && lec.summary.trim());
     },
