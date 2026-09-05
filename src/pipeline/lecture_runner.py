@@ -165,7 +165,11 @@ class LectureRunner:
             return None
 
         summary = self._summarize(
-            sub_id, course_title, transcript, transcript_segments,
+             sub_id,
+             course_id,
+             course_title,
+             transcript,
+             transcript_segments,
         )
         if summary is None:
             self._release_audio(sub_id)
@@ -361,31 +365,70 @@ class LectureRunner:
         self._db.update_transcript(sub_id, transcript)
         return transcript, segments
 
-    def _summarize(self, sub_id: str, course_title: str, transcript: str,
-                   transcript_segments: list[dict] | None) -> Optional[str]:
+    def _summarize(
+        self,
+        sub_id: str,
+        course_id: str,
+        course_title: str,
+        transcript: str,
+        transcript_segments: list[dict] | None,
+    ) -> Optional[str]:
         try:
             kept_pages = self._db.get_done_ppt_pages(sub_id)
+
             prompt_text, mode = bucketer.assemble(
-                transcript, transcript_segments, kept_pages,
+                transcript,
+                transcript_segments,
+                kept_pages,
             )
+
+            model, reasoning_effort = config.get_course_ai_settings(
+                course_id
+            )
+
+            self._reporter.info(
+                f"    [AI] Course {course_id}: "
+                f"{model} + {reasoning_effort}"
+            )
+
             self._reporter.info(
                 f"    [Time] Generating summary at "
                 f"{time.strftime('%H:%M:%S')}"
                 f" — mode={mode}, prompt={len(prompt_text)} chars"
             )
+
             summary, model_used = self._summarizer.summarize(
-                course_title, prompt_text,
+                course_title,
+                prompt_text,
+                deepseek_model=model,
+                deepseek_reasoning_effort=reasoning_effort,
             )
+
             self._reporter.info(
-                f"    [OK] Summary by {model_used}: {len(summary)} chars"
+                f"    [OK] Summary by {model_used}: "
+                f"{len(summary)} chars"
             )
-            self._db.update_summary(sub_id, summary, model_used)
+
+            self._db.update_summary(
+                sub_id,
+                summary,
+                model_used,
+            )
+
             return summary
+
         except Exception as e:
             self._reporter.info(
-                f"    [FAIL] Summarization error: {type(e).__name__}: {e}"
+                f"    [FAIL] Summarization error: "
+                f"{type(e).__name__}: {e}"
             )
-            self._db.update_error(sub_id, "summarize", str(e))
+
+            self._db.update_error(
+                sub_id,
+                "summarize",
+                str(e),
+            )
+
             raise
 
     def _release_audio(self, sub_id: str):
