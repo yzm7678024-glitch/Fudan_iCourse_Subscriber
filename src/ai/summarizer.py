@@ -212,64 +212,64 @@ class Summarizer:
         deepseek_model: str | None = None,
         deepseek_reasoning_effort: str | None = None,
     ) -> tuple[str, str]:
-        """Summarize lecture, trying providers in configured order.
-
-        deepseek_model and deepseek_reasoning_effort apply only to the
-        official DeepSeek provider. Other fallback providers keep their
-        existing configured model order.
-
-        Returns:
-            (summary, model_used)
-
-            model_used format:
-            "{provider}/{model}"
-
-        Raises:
-            RuntimeError:
-                If every configured provider/model fails.
-        """
-
-        if not content or not content.strip():
-            return ("（内容为空）", "")
-
-        errors = []
-
-        for provider in self.providers:
-            client = self._clients[provider["name"]]
-
-            # For the official DeepSeek provider, allow this individual
-            # lecture/course to override the global default model.
-            if provider["name"] == "deepseek" and deepseek_model:
-                models = [deepseek_model]
-            else:
-                models = provider["models"]
-
-            for model in models:
-                model_id = f"{provider['name']}/{model}"
-
-                try:
-                    result = self._call_llm(
-                        client,
-                        model,
-                        title,
-                        content,
-                        reasoning_effort=deepseek_reasoning_effort,
-                    )
-
-                    return (result, model_id)
-
-                except Exception as exc:
-                    print(
-                        f"[Summarizer] {model_id} failed: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
-
-                    errors.append(
-                        f"{model_id}: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
-
-        raise RuntimeError(
-            "All LLM models failed:\n"
-            + "\n".join(errors)
-        )
+           """Summarize lecture, trying providers in configured order.
+   
+           deepseek_model and deepseek_reasoning_effort apply only to the
+           official DeepSeek provider. Other fallback providers keep their
+           existing configured model order.
+   
+           Returns:
+               (summary, model_used)
+   
+               model_used format:
+               "{provider}/{model}"
+   
+           Raises:
+               RuntimeError:
+                   If every configured provider/model fails.
+           """
+   
+           if not content or not content.strip():
+               return ("（内容为空）", "")
+   
+           errors = []
+   
+           for provider in self.providers:
+               client = self._clients[provider["name"]]
+   
+               # For the official DeepSeek provider, allow this individual
+               # lecture/course to override the global default model.
+               if provider["name"] == "deepseek" and deepseek_model:
+                   models = [deepseek_model]
+               else:
+                   models = provider["models"]
+   
+               for model in models:
+                   model_id = f"{provider['name']}/{model}"
+   
+                   try:
+                       result = self._call_llm(
+                           client,
+                           model,
+                           title,
+                           content,
+                           reasoning_effort=deepseek_reasoning_effort,
+                       )
+   
+                       return (result, model_id)
+   
+                   except Exception as exc:
+                       print(
+                           f"[Summarizer] {model_id} failed: "
+                           f"{type(exc).__name__}: {exc}"
+                       )
+   
+                       errors.append(
+                           f"{model_id}: "
+                           f"{type(exc).__name__}: {exc}"
+                       )
+   
+           raise RuntimeError(
+               "All LLM models failed:\n"
+               + "\n".join(errors)
+           )
