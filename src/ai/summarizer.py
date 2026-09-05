@@ -103,6 +103,7 @@ class Summarizer:
         model: str,
         title: str,
         content: str,
+        reasoning_effort: str | None = None,
     ) -> str:
         """Call one LLM model and return a non-empty summary."""
 
@@ -138,7 +139,8 @@ class Summarizer:
         # 因此不会收到 DeepSeek 官方接口专属参数。
         if model in ("deepseek-v4-flash", "deepseek-v4-pro"):
             request_kwargs["reasoning_effort"] = (
-                config.DEEPSEEK_REASONING_EFFORT
+                reasoning_effort
+                or config.DEEPSEEK_REASONING_EFFORT
             )
             request_kwargs["extra_body"] = {
                 "thinking": {
@@ -203,12 +205,18 @@ class Summarizer:
 
         return result
 
-    def summarize(
+        def summarize(
         self,
         title: str,
         content: str,
+        deepseek_model: str | None = None,
+        deepseek_reasoning_effort: str | None = None,
     ) -> tuple[str, str]:
         """Summarize lecture, trying providers in configured order.
+
+        deepseek_model and deepseek_reasoning_effort apply only to the
+        official DeepSeek provider. Other fallback providers keep their
+        existing configured model order.
 
         Returns:
             (summary, model_used)
@@ -229,7 +237,14 @@ class Summarizer:
         for provider in self.providers:
             client = self._clients[provider["name"]]
 
-            for model in provider["models"]:
+            # For the official DeepSeek provider, allow this individual
+            # lecture/course to override the global default model.
+            if provider["name"] == "deepseek" and deepseek_model:
+                models = [deepseek_model]
+            else:
+                models = provider["models"]
+
+            for model in models:
                 model_id = f"{provider['name']}/{model}"
 
                 try:
@@ -238,6 +253,7 @@ class Summarizer:
                         model,
                         title,
                         content,
+                        reasoning_effort=deepseek_reasoning_effort,
                     )
 
                     return (result, model_id)
