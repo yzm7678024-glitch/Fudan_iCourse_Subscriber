@@ -91,18 +91,30 @@ class LectureRunner:
 
         existing = self._db.get_lecture(sub_id)
         # ── Phase A — short-circuit if a summary already exists ─────────
-        if self._has_summary(existing):
+        force_regenerate = sub_id in config.REGENERATE_SUB_IDS
+
+        # Normal runs skip lectures that already have a summary.
+        # Explicit regeneration requests bypass this shortcut.
+        if self._has_summary(existing) and not force_regenerate:
             self._reporter.lecture_skip_v2_done(
                 sub_title, len(existing["summary"])
             )
             self._schedule_next(next_info)
             self._db.mark_processed(sub_id)
             self._db.clear_error(sub_id)
+
             # The return value feeds the email batch — suppress it when
             # this summary already went out so it isn't re-sent.
             if existing.get("emailed_at"):
                 return None
+
             return existing["summary"]
+
+        if force_regenerate:
+            self._reporter.info(
+                " Regeneration requested: rebuilding summary "
+                "from cached transcript/PPT data."
+            )
 
         # ── Phase B — submit PPT pipeline (fetch + dedup, no OCR yet) ──
         # OCR is deferred (defer_ocr=True) so ASR in Phase D gets exclusive
