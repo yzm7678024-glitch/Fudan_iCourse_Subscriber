@@ -113,21 +113,50 @@ def _enumerate_lectures(client: ICourseClient, db: Database,
                     reporter.course_dedup_skip(title, lec["sub_id"])
             lectures = deduped
 
-            known_processed = db.get_processed_sub_ids(course_id)
-            new_lectures = [
+            if config.REGENERATE_SUB_IDS:
+              # Regeneration mode:
+              # process ONLY the explicitly requested lectures, even if they
+              # already have a summary in the database.
+              new_lectures = [
+                lec for lec in lectures
+                if lec.get("has_playback")
+                and str(lec["sub_id"]) in config.REGENERATE_SUB_IDS
+              ]
+
+              reporter.info(
+                f"[Regenerate] Requested "
+                f"{len(config.REGENERATE_SUB_IDS)} lecture(s); "
+                f"matched {len(new_lectures)} in course {course_id}."
+              )
+
+            else:
+            # Normal mode:
+            # process new lectures and previously failed/incomplete lectures.
+              known_processed = db.get_processed_sub_ids(course_id)
+
+              new_lectures = [
                 lec for lec in lectures
                 if lec.get("has_playback")
                 and str(lec["sub_id"]) not in known_processed
-            ]
-            unprocessed = db.get_unprocessed_lectures(course_id)
-            new_ids = {str(lec["sub_id"]) for lec in new_lectures}
-            retry_only = [
-                {"sub_id": u["sub_id"], "sub_title": u["sub_title"],
-                 "date": u["date"]}
-                for u in unprocessed if u["sub_id"] not in new_ids
-            ]
-            new_lectures.extend(retry_only)
+              ]
+
+              unprocessed = db.get_unprocessed_lectures(course_id)
+              new_ids = {str(lec["sub_id"]) for lec in new_lectures}
+
+              retry_only = [
+                {
+                    "sub_id": u["sub_id"],
+                    "sub_title": u["sub_title"],
+                    "date": u["date"],
+                }
+                for u in unprocessed
+                if u["sub_id"] not in new_ids
+              ]
+
+              new_lectures.extend(retry_only)
+
             reporter.course_new_count(len(new_lectures))
+
             if not new_lectures:
                 continue
 
