@@ -1,0 +1,223 @@
+name: Regenerate Lecture
+
+on:
+  workflow_dispatch:
+    inputs:
+      course_id:
+        description: "Course ID"
+        required: true
+        type: string
+
+      sub_id:
+        description: "Lecture sub_id to regenerate"
+        required: true
+        type: string
+
+      deepseek_model:
+        description: "DeepSeek model"
+        required: true
+        default: "deepseek-v4-flash"
+        type: choice
+        options:
+          - deepseek-v4-flash
+          - deepseek-v4-pro
+
+      deepseek_reasoning_effort:
+        description: "DeepSeek reasoning effort"
+        required: true
+        default: "high"
+        type: choice
+        options:
+          - low
+          - high
+          - max
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache Python packages
+        id: cache-pip
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.pythonLocation }}/lib/python*/site-packages
+          key: pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Install Python dependencies
+        if: steps.cache-pip.outputs.cache-hit != 'true'
+        run: pip install -r requirements.txt
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      # Normally regeneration reuses the cached transcript and does not run ASR.
+      # Keep these fallbacks available in case a lecture unexpectedly has no
+      # stored transcript.
+      - name: Cache ASR models
+        id: cache-models
+        uses: actions/cache@v4
+        with:
+          path: |
+            sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/
+            silero_vad.onnx
+          key: asr-models-sense-voice-2024-07-17
+
+      - name: Download ASR models
+        if: steps.cache-models.outputs.cache-hit != 'true'
+        run: |
+          wget -q https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2
+          tar xf sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2
+          rm sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2
+          wget -q https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+
+      - name: Cache RapidOCR models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rapidocr
+          key: rapidocr-onnx-default-v1
+
+      - name: Fetch database from data branch
+        run: |
+          mkdir -p data/sharded/shards
+
+          if ! git fetch --depth=1 origin "+refs/heads/data:refs/remotes/origin/data"; then
+            echo "::error::data branch not found. Regeneration requires an existing database."
+            exit 1
+          fi
+
+          if ! git cat-file -e origin/data:data/icourse-index.enc 2>/dev/null; then
+            echo "::error::Sharded database not found on data branch."
+            exit 1
+          fi
+
+          git show origin/data:data/icourse-index.enc > data/sharded/icourse-index.enc
+
+          shard_paths=$(git ls-tree -r --name-only origin/data | grep '^data/shards/' || true)
+
+          for path in $shard_paths; do
+            base=$(basename "$path")
+            git show "origin/data:$path" > "data/sharded/shards/$base"
+          done
+
+          echo "Loaded $(ls data/sharded/shards 2>/dev/null | wc -l) shard(s)."
+
+      - name: Decode database
+        env:
+          DB_SECRET: ${{ secrets.DB_SECRET }}
+        run: |
+          python scripts/db_shard.py reassemble data/sharded data/icourse.db
+          echo "Database reassembled."
+
+      - name: Record database state
+        id: db-before
+        run: |
+          echo "hash=$(md5sum data/icourse.db | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Regenerate lecture
+        timeout-minutes: 150
+        env:
+          StuId: ${{ secrets.STUID }}
+          UISPsw: ${{ secrets.UISPSW }}
+
+          COURSE_IDS: ${{ inputs.course_id }}
+          REGENERATE_SUB_IDS: ${{ inputs.sub_id }}
+
+          DEEPSEEK_MODEL: ${{ inputs.deepseek_model }}
+          DEEPSEEK_REASONING_EFFORT: ${{ inputs.deepseek_reasoning_effort }}
+
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+        run: |
+          python -u main.py
+
+      - name: Deploy database to data branch
+        if: always()
+        env:
+          DB_SECRET: ${{ secrets.DB_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f data/icourse.db ]; then
+            echo "No database file, skipping."
+            exit 0
+          fi
+
+          AFTER=$(md5sum data/icourse.db | cut -d' ' -f1)
+
+          if [ "$AFTER" = "${{ steps.db-before.outputs.hash }}" ]; then
+            echo "Database unchanged, skipping commit."
+            exit 0
+          fi
+
+          git fetch origin data --depth=1
+
+          rm -rf data/remote_sharded
+          mkdir -p data/remote_sharded/shards
+
+          git show origin/data:data/icourse-index.enc \
+            > data/remote_sharded/icourse-index.enc
+
+          shard_paths=$(git ls-tree -r --name-only origin/data | grep '^data/shards/' || true)
+
+          for path in $shard_paths; do
+            base=$(basename "$path")
+            git show "origin/data:$path" \
+              > "data/remote_sharded/shards/$base"
+          done
+
+          python scripts/db_shard.py reassemble \
+            data/remote_sharded data/remote.db
+
+          echo "Merging regeneration result into latest database..."
+          python scripts/merge_db.py data/icourse.db data/remote.db
+
+          rm -rf data/sharded_out
+          mkdir -p data/sharded_out
+
+          python scripts/db_shard.py shard \
+            data/remote.db data/sharded_out
+
+          rm -rf /tmp/db_deploy
+          mkdir -p /tmp/db_deploy/data/shards
+
+          cp data/sharded_out/icourse-index.enc \
+            /tmp/db_deploy/data/
+
+          cp data/sharded_out/shards/*.db.gz.enc \
+            /tmp/db_deploy/data/shards/
+
+          cd /tmp/db_deploy
+
+          git init -q
+          git checkout -q -b data
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data/
+          git commit -q -m "chore: regenerate lecture summary"
+
+          git remote add origin \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+
+          git push --force origin data
