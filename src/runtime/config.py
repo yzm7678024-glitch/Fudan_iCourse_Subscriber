@@ -35,6 +35,51 @@ if DEEPSEEK_MODEL not in ("deepseek-v4-flash", "deepseek-v4-pro"):
 
 if DEEPSEEK_REASONING_EFFORT not in ("low", "high", "max"):
     DEEPSEEK_REASONING_EFFORT = "high"
+
+# Per-course DeepSeek overrides.
+#
+# Format:
+# COURSE_AI_OVERRIDES="33291=deepseek-v4-pro:high,45678=deepseek-v4-pro:max"
+#
+# Courses not listed here continue to use the global
+# DEEPSEEK_MODEL + DEEPSEEK_REASONING_EFFORT settings.
+COURSE_AI_OVERRIDES: dict[str, tuple[str, str]] = {}
+
+for item in os.environ.get("COURSE_AI_OVERRIDES", "").split(","):
+    item = item.strip()
+    if not item or "=" not in item:
+        continue
+
+    course_id, settings = item.split("=", 1)
+    course_id = course_id.strip()
+    settings = settings.strip()
+
+    if ":" not in settings:
+        continue
+
+    model, effort = settings.split(":", 1)
+    model = model.strip()
+    effort = effort.strip().lower()
+
+    if model not in ("deepseek-v4-flash", "deepseek-v4-pro"):
+        continue
+
+    if effort not in ("low", "high", "max"):
+        continue
+
+    if course_id:
+        COURSE_AI_OVERRIDES[course_id] = (model, effort)
+
+
+def get_course_ai_settings(course_id: str) -> tuple[str, str]:
+    """Return DeepSeek model/effort for one course.
+
+    Per-course overrides take priority over the global defaults.
+    """
+    return COURSE_AI_OVERRIDES.get(
+        str(course_id),
+        (DEEPSEEK_MODEL, DEEPSEEK_REASONING_EFFORT),
+    )
 # 模型服务商配置（按列表顺序作为优先级，从前往后尝试）。
 # 用户可以在这里随意添加/删除/重排服务商和模型。
 # 兼容性：只设置 DASHSCOPE_API_KEY 也能跑（modelscope 项的 api_key 直接读取它）。
