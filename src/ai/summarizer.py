@@ -205,7 +205,7 @@ class Summarizer:
 
         return result
 
-        def summarize(
+   def summarize(
         self,
         title: str,
         content: str,
