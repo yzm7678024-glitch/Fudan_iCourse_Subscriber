@@ -113,6 +113,7 @@ class Summarizer:
             provider["name"]: OpenAI(
                 api_key=provider["api_key"],
                 base_url=provider["base_url"],
+                max_retries=0 if provider["name"] == "paratera" else 2,
             )
             for provider in self.providers
         }
