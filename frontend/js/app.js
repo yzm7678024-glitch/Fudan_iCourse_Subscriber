@@ -265,7 +265,7 @@ document.addEventListener("alpine:init", () => {
 
     // Single-lecture regeneration dialog.
     regenerateDialogOpen: false,
-    regenerateModel: "deepseek-v4-flash",
+    regenerateModel: "deepseek-flash",
     regenerateReasoningEffort: "high",
     regenerateTriggering: false,
     
@@ -478,7 +478,7 @@ document.addEventListener("alpine:init", () => {
       }
 
       // Always start from the normal daily default.
-      this.regenerateModel = "deepseek-v4-flash";
+      this.regenerateModel = "deepseek-flash";
       this.regenerateReasoningEffort = "high";
       this.regenerateDialogOpen = true;
     },
