@@ -1,0 +1,79 @@
+
+name: Test Paratera API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Test school API
+        env:
+          PARATERA_API_KEY: ${{ secrets.PARATERA_API_KEY }}
+          PARATERA_BASE_URL: ${{ vars.PARATERA_BASE_URL }}
+          PARATERA_MODEL: ${{ vars.PARATERA_MODEL }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import urllib.request
+          import urllib.error
+
+          key = os.environ.get("PARATERA_API_KEY", "")
+          base = os.environ.get("PARATERA_BASE_URL", "").rstrip("/")
+          model = os.environ.get("PARATERA_MODEL", "")
+
+          if not key or not base or not model:
+              raise SystemExit("Missing Paratera configuration")
+
+          url = base + "/chat/completions"
+
+          payload = {
+              "model": model,
+              "messages": [
+                  {"role": "user", "content": "请只回复：连接成功"}
+              ],
+              "max_tokens": 512,
+              "stream": False
+          }
+
+          req = urllib.request.Request(
+              url,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": "Bearer " + key,
+                  "Content-Type": "application/json"
+              },
+              method="POST"
+          )
+
+          try:
+              with urllib.request.urlopen(req, timeout=90) as response:
+                  result = json.load(response)
+          except urllib.error.HTTPError as e:
+              detail = e.read(500).decode("utf-8", "replace")
+              detail = detail.replace(key, "[REDACTED]")
+              raise SystemExit(f"API HTTP {e.code}: {detail}")
+
+          choices = result.get("choices") or []
+          answer = (
+              (choices[0].get("message") or {}).get("content")
+              if choices else None
+          )
+
+          print("Provider: Paratera")
+          print("Model:", result.get("model"))
+          print("Response:", answer)
+          print("Usage:", result.get("usage"))
+
+          if not answer or not answer.strip():
+              raise SystemExit("API returned empty content")
+
+          print("API TEST PASSED")
+          PY
