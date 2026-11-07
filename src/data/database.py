@@ -3,7 +3,7 @@
 import os
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime,timedelta
 
 from src.runtime import config
 from src.data.schema import (
@@ -211,27 +211,52 @@ class Database:
         return {row["sub_id"] for row in rows}
    
 
+    
+    @staticmethod
+    def retry_is_due(lecture: dict | None,
+                     max_errors: int = 3,
+                     cooldown_days: int = 7) -> bool:
+        """Decide whether a lecture may be retried."""
+        if not lecture:
+            return True
+
+        if (lecture.get("error_count") or 0) < max_errors:
+            return True
+
+        last_error_at = lecture.get("last_error_at")
+        if not last_error_at:
+            return True
+
+        try:
+            last_error = datetime.fromisoformat(last_error_at)
+        except (TypeError, ValueError):
+            return True
+
+        return datetime.now(last_error.tzinfo) >= (
+            last_error + timedelta(days=cooldown_days)
+        )
+
     def get_unprocessed_lectures(self, course_id: str | None = None,
                                   max_errors: int = 3) -> list[dict]:
-        """Return lectures that need (re-)processing.
+        """Return incomplete lectures whose retry cooldown has expired."""
+        query = "SELECT * FROM lectures WHERE processed_at IS NULL"
+        params = ()
 
-        Only returns lectures whose ``error_count`` is below *max_errors* —
-        a permanently-failing lecture (e.g. ``get-sub-info`` RuntimeError
-        for a removed recording) is abandoned after that many attempts
-        rather than clogging every workflow run.
-        """
-        query = (
-            "SELECT * FROM lectures"
-            " WHERE processed_at IS NULL"
-            "   AND (error_count IS NULL OR error_count < ?)"
-        )
-        params: tuple = (max_errors,)
         if course_id:
             query += " AND course_id = ?"
-            params = (max_errors, course_id)
+            params = (course_id,)
+
         with self._lock:
             rows = self.conn.execute(query, params).fetchall()
-        return [dict(row) for row in rows]
+
+        return [
+            lecture for row in rows
+            if self.retry_is_due(
+                lecture := dict(row),
+                max_errors=max_errors,
+            )
+        ]
+
 
     def update_transcript(self, sub_id: str, transcript: str):
         with self._lock, self.conn:
@@ -271,9 +296,10 @@ class Database:
             self.conn.execute(
                 """UPDATE lectures
                    SET error_stage = ?, error_msg = ?,
-                       error_count = COALESCE(error_count, 0) + 1
+                       error_count = COALESCE(error_count, 0) + 1,
+                       last_error_at = ?
                    WHERE sub_id = ?""",
-                (stage, error_msg, sub_id),
+                (stage, error_msg, datetime.now().isoformat(), sub_id),
             )
 
     def clear_error(self, sub_id: str):
@@ -281,7 +307,8 @@ class Database:
         with self._lock, self.conn:
             self.conn.execute(
                 """UPDATE lectures
-                   SET error_stage = NULL, error_msg = NULL, error_count = 0
+                   SET error_stage = NULL, error_msg = NULL,
+                       error_count = 0, last_error_at = NULL
                    WHERE sub_id = ?""",
                 (sub_id,),
             )
