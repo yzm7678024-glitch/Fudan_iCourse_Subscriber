@@ -30,7 +30,7 @@ DEEPSEEK_REASONING_EFFORT = os.environ.get(
     "high",
 ).strip().lower()
 
-if DEEPSEEK_MODEL not in ("deepseek-v4-flash", "deepseek-v4-pro"):
+if DEEPSEEK_MODEL not in ("deepseek-flash", "deepseek-v4-pro"):
     DEEPSEEK_MODEL = "deepseek-flash"
 
 if DEEPSEEK_REASONING_EFFORT not in ("low", "high", "max"):
