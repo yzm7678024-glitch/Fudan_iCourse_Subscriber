@@ -1,5 +1,5 @@
 
-name: Test Paratera API
+name: Test Paratera Streaming
 
 on:
   workflow_dispatch:
@@ -13,7 +13,10 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Test school API
+      - name: Install OpenAI SDK
+        run: pip install -q openai
+
+      - name: Test Paratera Streaming
         env:
           PARATERA_API_KEY: ${{ secrets.PARATERA_API_KEY }}
           PARATERA_BASE_URL: ${{ vars.PARATERA_BASE_URL }}
@@ -21,72 +24,67 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          import json
-          import urllib.request
-          import urllib.error
+          from openai import OpenAI
 
-          key = os.environ.get("PARATERA_API_KEY", "")
-          base = os.environ.get("PARATERA_BASE_URL", "").rstrip("/")
-          model = os.environ.get("PARATERA_MODEL", "")
+          client = OpenAI(
+              api_key=os.environ["PARATERA_API_KEY"],
+              base_url=os.environ["PARATERA_BASE_URL"],
+              max_retries=0,
+              timeout=90,
+          )
 
-          if not key or not base or not model:
-              raise SystemExit("Missing Paratera configuration")
+          model = os.environ["PARATERA_MODEL"]
+          parts = []
+          finish_reason = None
+          usage = None
+          content_chunks = 0
 
-          url = base + "/chat/completions"
+          print("Testing Paratera streaming...", flush=True)
+          print("Model:", model, flush=True)
 
-          payload = {
-              "model": model,
-              "messages": [
+          with client.chat.completions.create(
+              model=model,
+              messages=[
                   {
                       "role": "user",
-                      "content": "请计算17×19，并只回复最终数字。"
+                      "content": "请计算17乘19，只回复最终数字。"
                   }
               ],
-              "reasoning_effort": "max",
-              "thinking": {
-                  "type": "enabled"
-              },
-              "max_tokens": 2048,
-              "stream": False
-          }
+              reasoning_effort="max",
+              extra_body={"thinking": {"type": "enabled"}},
+              stream=True,
+              stream_options={"include_usage": True},
+              max_tokens=512,
+          ) as stream:
+              for chunk in stream:
+                  if getattr(chunk, "usage", None) is not None:
+                      usage = chunk.usage
 
-          req = urllib.request.Request(
-              url,
-              data=json.dumps(payload).encode("utf-8"),
-              headers={
-                  "Authorization": "Bearer " + key,
-                  "Content-Type": "application/json"
-              },
-              method="POST"
-          )
+                  if not chunk.choices:
+                      continue
 
-          try:
-              with urllib.request.urlopen(req, timeout=90) as response:
-                  result = json.load(response)
-          except urllib.error.HTTPError as e:
-              detail = e.read(500).decode("utf-8", "replace")
-              detail = detail.replace(key, "[REDACTED]")
-              raise SystemExit(f"API HTTP {e.code}: {detail}")
+                  choice = chunk.choices[0]
+                  piece = getattr(choice.delta, "content", None)
 
-          choices = result.get("choices") or []
-          answer = (
-              (choices[0].get("message") or {}).get("content")
-              if choices else None
-          )
+                  if piece:
+                      parts.append(piece)
+                      content_chunks += 1
 
-          print("Provider: Paratera")
-          print("Model:", result.get("model"))
-          print("Response:", answer)
-          print("Usage:", result.get("usage"))
+                  if choice.finish_reason is not None:
+                      finish_reason = choice.finish_reason
 
-          usage = result.get("usage") or {}
-          details = usage.get("completion_tokens_details") or {}
-          
-          print("Reasoning tokens:", details.get("reasoning_tokens"))
-          print("Max request accepted by API")
+          result = "".join(parts).strip()
 
-          if not answer or not answer.strip():
-              raise SystemExit("API returned empty content")
+          print("Response:", result)
+          print("Content chunks:", content_chunks)
+          print("Finish reason:", finish_reason)
+          print("Usage:", usage)
 
-          print("API TEST PASSED")
+          if finish_reason != "stop":
+              raise SystemExit("FAILED: stream incomplete")
+
+          if result != "323":
+              raise SystemExit("FAILED: unexpected response")
+
+          print("STREAMING TEST PASSED")
           PY
