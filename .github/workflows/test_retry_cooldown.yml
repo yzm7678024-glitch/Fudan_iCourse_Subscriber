@@ -1,0 +1,155 @@
+
+name: Test Retry Cooldown
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Test retry cooldown and database merge
+        run: |
+          python - <<'PY'
+          import sqlite3
+          import tempfile
+          from pathlib import Path
+          from datetime import datetime, timedelta
+
+          from src.data.database import Database
+          from scripts.merge_db import merge
+
+          with tempfile.TemporaryDirectory() as tmp:
+              path = Path(tmp) / "old.db"
+
+              #模拟尚未包含last_error_at的旧数据库
+              con = sqlite3.connect(path)
+              con.execute("""
+                  CREATE TABLE lectures (
+                      sub_id TEXT PRIMARY KEY,
+                      course_id TEXT NOT NULL,
+                      sub_title TEXT, date TEXT,
+                      transcript TEXT, summary TEXT,
+                      processed_at TEXT, emailed_at TEXT,
+                      error_msg TEXT,
+                      error_count INTEGER DEFAULT 0,
+                      error_stage TEXT, summary_model TEXT
+                  )
+              """)
+              con.commit()
+              con.close()
+
+              db = Database(str(path))
+              assert "last_error_at" in [
+                  row[1] for row in
+                  db.conn.execute("PRAGMA table_info(lectures)")
+              ]
+              print("PASS: old database migration")
+
+              db.upsert_course("c1", "Test Course", "Teacher")
+              db.insert_lecture("s1", "c1", "Test Lecture", "")
+
+              for count in range(1, 4):
+                  db.update_error("s1", "transcribe", "test failure")
+                  row = db.get_lecture("s1")
+                  assert row["error_count"] == count
+                  assert db.retry_is_due(row) == (count < 3)
+
+              assert not db.get_unprocessed_lectures("c1")
+              print("PASS: 3 failures trigger cooldown")
+
+              six_days_ago = (
+                  datetime.now() - timedelta(days=6)
+              ).isoformat()
+              with db.conn:
+                  db.conn.execute(
+                      "UPDATE lectures SET last_error_at=? WHERE sub_id=?",
+                      (six_days_ago, "s1")
+                  )
+              assert not db.retry_is_due(db.get_lecture("s1"))
+
+              eight_days_ago = (
+                  datetime.now() - timedelta(days=8)
+              ).isoformat()
+              with db.conn:
+                  db.conn.execute(
+                      "UPDATE lectures SET last_error_at=? WHERE sub_id=?",
+                      (eight_days_ago, "s1")
+                  )
+              assert db.retry_is_due(db.get_lecture("s1"))
+              assert len(db.get_unprocessed_lectures("c1")) == 1
+              print("PASS: retry after 7 days")
+
+              db.update_error("s1", "transcribe", "failed again")
+              assert not db.retry_is_due(db.get_lecture("s1"))
+              print("PASS: failed retry restarts cooldown")
+
+              db.clear_error("s1")
+              row = db.get_lecture("s1")
+              assert row["error_count"] == 0
+              assert row["last_error_at"] is None
+
+              db.mark_processed("s1")
+              assert not db.get_unprocessed_lectures("c1")
+              print("PASS: successful processing clears error")
+
+              db.conn.close()
+
+          with tempfile.TemporaryDirectory() as tmp:
+              local_path = str(Path(tmp) / "local.db")
+              remote_path = str(Path(tmp) / "remote.db")
+
+              local = Database(local_path)
+              remote = Database(remote_path)
+
+              for db in (local, remote):
+                  db.upsert_course("c1", "Test Course", "Teacher")
+                  db.insert_lecture("s2", "c1", "Test Lecture", "")
+
+              for _ in range(3):
+                  local.update_error("s2", "transcribe", "failure")
+              remote.update_error("s2", "transcribe", "failure")
+
+              local_time = (
+                  datetime.now() - timedelta(days=1)
+              ).isoformat()
+              remote_time = (
+                  datetime.now() - timedelta(days=8)
+              ).isoformat()
+
+              with local.conn:
+                  local.conn.execute(
+                      "UPDATE lectures SET last_error_at=? WHERE sub_id='s2'",
+                      (local_time,)
+                  )
+              with remote.conn:
+                  remote.conn.execute(
+                      "UPDATE lectures SET last_error_at=? WHERE sub_id='s2'",
+                      (remote_time,)
+                  )
+
+              local.conn.close()
+              remote.conn.close()
+
+              merge(local_path, remote_path)
+
+              merged = Database(remote_path)
+              row = merged.get_lecture("s2")
+              assert row["error_count"] == 3
+              assert row["last_error_at"] == local_time
+              assert not merged.retry_is_due(row)
+              merged.conn.close()
+              print("PASS: database merge preserves cooldown")
+
+          print("ALL COOLDOWN TESTS PASSED")
+          PY
