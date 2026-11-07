@@ -161,7 +161,7 @@ class Summarizer:
         #
         # ModelScope 等其他 OpenAI-compatible provider 不会进入这里，
         # 因此不会收到 DeepSeek 官方接口专属参数。
-        if model in ("deepseek-flash", "deepseek-v4-pro"):
+        if model in ("deepseek-flash", "deepseek-v4-pro","DeepSeek-V4.1-Flash-1017",):
             request_kwargs["reasoning_effort"] = (
                 reasoning_effort
                 or config.DEEPSEEK_REASONING_EFFORT
