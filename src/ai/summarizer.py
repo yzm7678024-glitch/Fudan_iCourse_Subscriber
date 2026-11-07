@@ -125,6 +125,7 @@ class Summarizer:
         title: str,
         content: str,
         reasoning_effort: str | None = None,
+        stream_output: bool = False,
     ) -> str:
         """Call one LLM model and return a non-empty summary."""
 
@@ -174,16 +175,41 @@ class Summarizer:
             }
 
         # 真正调用模型 API。
-        response = client.chat.completions.create(**request_kwargs)
+        
+        if stream_output:
+            request_kwargs["stream"] = True
+            parts = []
+            finish_reason = None
 
-        # API 请求成功并不代表一定返回了有效内容。
-        if not response.choices:
-            raise ValueError(
-                "API returned empty choices — "
-                "likely content filter, quota, or provider error"
-            )
+            with client.chat.completions.create(**request_kwargs) as stream:
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
 
-        result = response.choices[0].message.content
+                    choice = chunk.choices[0]
+                    piece = getattr(choice.delta, "content", None)
+
+                    if piece:
+                        parts.append(piece)
+
+                    if choice.finish_reason is not None:
+                        finish_reason = choice.finish_reason
+
+            if finish_reason != "stop":
+                raise ValueError(
+                    f"Incomplete stream: {finish_reason}"
+                )
+
+            result = "".join(parts)
+            usage = None
+        else:
+            response = client.chat.completions.create(**request_kwargs)
+
+            if not response.choices:
+                raise ValueError("API returned empty choices")
+
+            result = response.choices[0].message.content
+            usage = getattr(response, "usage", None)
 
         # 修复旧版本 Bug：
         # 如果模型返回 None、空字符串或纯空白，
@@ -197,8 +223,6 @@ class Summarizer:
         result = result.strip()
         elapsed = time.time() - t0
 
-        # 输出 token 使用情况，便于判断成本与调用规模。
-        usage = getattr(response, "usage", None)
 
         if usage is not None:
             prompt_tokens = getattr(
@@ -279,6 +303,7 @@ class Summarizer:
                            title,
                            content,
                            reasoning_effort=deepseek_reasoning_effort,
+                           stream_output=(provider["name"] == "paratera"),
                        )
    
                        return (result, model_id)
