@@ -22,7 +22,7 @@ USER_AGENT = (
 # Can be overridden by GitHub Actions inputs.
 DEEPSEEK_MODEL = os.environ.get(
     "DEEPSEEK_MODEL",
-    "deepseek-v4-flash",
+    "deepseek-flash",
 ).strip()
 
 DEEPSEEK_REASONING_EFFORT = os.environ.get(
@@ -31,7 +31,7 @@ DEEPSEEK_REASONING_EFFORT = os.environ.get(
 ).strip().lower()
 
 if DEEPSEEK_MODEL not in ("deepseek-v4-flash", "deepseek-v4-pro"):
-    DEEPSEEK_MODEL = "deepseek-v4-flash"
+    DEEPSEEK_MODEL = "deepseek-flash"
 
 if DEEPSEEK_REASONING_EFFORT not in ("low", "high", "max"):
     DEEPSEEK_REASONING_EFFORT = "high"
@@ -61,7 +61,7 @@ for item in os.environ.get("COURSE_AI_OVERRIDES", "").split(","):
     model = model.strip()
     effort = effort.strip().lower()
 
-    if model not in ("deepseek-v4-flash", "deepseek-v4-pro"):
+    if model not in ("deepseek-flash", "deepseek-v4-pro"):
         continue
 
     if effort not in ("low", "high", "max"):
