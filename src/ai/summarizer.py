@@ -152,7 +152,7 @@ class Summarizer:
                     ),
                 },
             ],
-            "timeout": 180,
+            "timeout": 600 if model == "DeepSeek-V4.1-Flash-1017" else 180,
         }
 
         # DeepSeek 官方 API 专属配置。
