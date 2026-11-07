@@ -271,7 +271,7 @@ async function _triggerRegenerateWorkflow(
   const inputs = {
     course_id: String(courseId),
     sub_id: String(subId),
-    deepseek_model: model || "deepseek-v4-flash",
+    deepseek_model: model || "deepseek-flash",
     deepseek_reasoning_effort: reasoningEffort || "high",
   };
 
