@@ -37,9 +37,16 @@ jobs:
           payload = {
               "model": model,
               "messages": [
-                  {"role": "user", "content": "请只回复：连接成功"}
+                  {
+                      "role": "user",
+                      "content": "请计算17×19，并只回复最终数字。"
+                  }
               ],
-              "max_tokens": 512,
+              "reasoning_effort": "max",
+              "thinking": {
+                  "type": "enabled"
+              },
+              "max_tokens": 2048,
               "stream": False
           }
 
@@ -71,6 +78,12 @@ jobs:
           print("Model:", result.get("model"))
           print("Response:", answer)
           print("Usage:", result.get("usage"))
+
+          usage = result.get("usage") or {}
+          details = usage.get("completion_tokens_details") or {}
+          
+          print("Reasoning tokens:", details.get("reasoning_tokens"))
+          print("Max request accepted by API")
 
           if not answer or not answer.strip():
               raise SystemExit("API returned empty content")
