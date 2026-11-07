@@ -176,33 +176,35 @@ class Summarizer:
 
         # 真正调用模型 API。
         
+        
         if stream_output:
-             request_kwargs["stream"] = True
-             parts = []
-             finish_reason = None
-             usage = None
-         
-             with client.chat.completions.create(**request_kwargs) as stream:
-                 for chunk in stream:
-                     if getattr(chunk, "usage", None) is not None:
-                         usage = chunk.usage
-         
-                     if not chunk.choices:
-                         continue
-         
-                     choice = chunk.choices[0]
-                     piece = getattr(choice.delta, "content", None)
-         
-                     if piece:
-                         parts.append(piece)
-         
-                     if choice.finish_reason is not None:
-                         finish_reason = choice.finish_reason
-         
-             if finish_reason != "stop":
-                 raise ValueError(f"Incomplete stream: {finish_reason}")
-         
-             result = "".join(parts)
+            request_kwargs["stream"] = True
+            request_kwargs["stream_options"] = {"include_usage": True}
+            parts = []
+            finish_reason = None
+            usage = None
+
+            with client.chat.completions.create(**request_kwargs) as stream:
+                for chunk in stream:
+                    if getattr(chunk, "usage", None) is not None:
+                        usage = chunk.usage
+
+                    if not chunk.choices:
+                        continue
+
+                    choice = chunk.choices[0]
+                    piece = getattr(choice.delta, "content", None)
+
+                    if piece:
+                        parts.append(piece)
+
+                    if choice.finish_reason is not None:
+                        finish_reason = choice.finish_reason
+
+            if finish_reason != "stop":
+                raise ValueError(f"Incomplete stream: {finish_reason}")
+
+            result = "".join(parts)
         else:
             response = client.chat.completions.create(**request_kwargs)
 
