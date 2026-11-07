@@ -134,11 +134,23 @@ def _enumerate_lectures(client: ICourseClient, db: Database,
             # process new lectures and previously failed/incomplete lectures.
               known_processed = db.get_processed_sub_ids(course_id)
 
-              new_lectures = [
-                lec for lec in lectures
-                if lec.get("has_playback")
-                and str(lec["sub_id"]) not in known_processed
-              ]
+              
+              new_lectures = []
+
+              for lec in lectures:
+                  if not lec.get("has_playback"):
+                      continue
+
+                  sub_id = str(lec["sub_id"])
+                  if sub_id in known_processed:
+                      continue
+
+                  existing = db.get_lecture(sub_id)
+                  if not db.retry_is_due(existing):
+                      continue
+
+                  new_lectures.append(lec)
+
 
               unprocessed = db.get_unprocessed_lectures(course_id)
               new_ids = {str(lec["sub_id"]) for lec in new_lectures}
