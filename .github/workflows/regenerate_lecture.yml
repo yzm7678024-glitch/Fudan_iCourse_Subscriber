@@ -16,10 +16,10 @@ on:
       deepseek_model:
         description: "DeepSeek model"
         required: true
-        default: "deepseek-v4-flash"
+        default: "deepseek-flash"
         type: choice
         options:
-          - deepseek-v4-flash
+          - deepseek-flash
           - deepseek-v4-pro
 
       deepseek_reasoning_effort:
