@@ -121,7 +121,6 @@ jobs:
           DB_SECRET: ${{ secrets.DB_SECRET }}
           STUID: ${{ secrets.STUID }}
           UISPSW: ${{ secrets.UISPSW }}
-          UIS_TOTP_SECRET: ${{ secrets.UIS_TOTP_SECRET }}
           DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         run: |
@@ -183,6 +182,7 @@ jobs:
         env:
           StuId: ${{ secrets.STUID }}
           UISPsw: ${{ secrets.UISPSW }}
+          UIS_TOTP_SECRET: ${{ secrets.UIS_TOTP_SECRET }}
 
           COURSE_IDS: ${{ inputs.course_ids }}
           USE_OFFICIAL_TRANSCRIPT: ${{ inputs.use_official_transcript && '1' || '' }}
