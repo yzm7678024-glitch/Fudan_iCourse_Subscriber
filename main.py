@@ -378,3 +378,6 @@ def run():
             # Even when processing fails, send completed summaries.
             _send_email(emailer, db, reporter, email_items)
             reporter.run_footer()
+          
+if __name__ == "__main__":
+    run()
