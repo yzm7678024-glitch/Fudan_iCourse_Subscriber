@@ -10,7 +10,7 @@ import hmac
 import time
 import html as html_mod
 import re
-from binascii import Base32Error, hexlify, unhexlify
+from binascii import Error as Base32Error, hexlify, unhexlify
 from urllib.parse import urlparse, urlencode, quote, urljoin
 
 import requests
@@ -347,10 +347,6 @@ class WebVPNSession:
                 data, student_id, lck, entity_id,
                 request_type, via_vpn=True
             )
-        if data.get("second"):
-            data = self._authenticate_totp(
-                data, student_id, lck, entity_id, request_type
-            )
         login_token = data.get("loginToken", "")
         if not login_token:
             raise RuntimeError("No loginToken in iCourse CAS response")
@@ -576,6 +572,11 @@ class WebVPNSession:
             )
 
         # loginToken is at top level, not nested under "data"
+        if data.get("second"):
+            data = self._authenticate_totp(
+                data, student_id, lck, entity_id, request_type
+            )
+
         login_token = data.get("loginToken", "")
         if not login_token:
             raise RuntimeError("No loginToken in response")
