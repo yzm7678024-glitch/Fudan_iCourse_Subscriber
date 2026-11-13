@@ -132,6 +132,7 @@ jobs:
         env:
           StuId: ${{ secrets.STUID }}
           UISPsw: ${{ secrets.UISPSW }}
+          UIS_TOTP_SECRET: ${{ secrets.UIS_TOTP_SECRET }}
 
           COURSE_IDS: ${{ inputs.course_id }}
           REGENERATE_SUB_IDS: ${{ inputs.sub_id }}
