@@ -636,10 +636,24 @@ class WebVPNSession:
             )
             resp.raise_for_status()
             data = resp.json()
-        except (requests.RequestException, ValueError):
+        
+        except requests.RequestException as exc:
+            response = getattr(exc, "response", None)
+            status = (
+                response.status_code
+                if response is not None else "unknown"
+            )
             raise SecondFactorError(
-                "TOTP request failed; automatic retries stopped"
+                f"TOTP HTTP error: {type(exc).__name__}, "
+                f"status={status}"
             ) from None
+
+        except ValueError:
+            raise SecondFactorError(
+                f"TOTP returned non-JSON response "
+                f"(HTTP {resp.status_code})"
+            ) from None
+
 
         if not isinstance(data, dict) or str(data.get("code")) != "200":
             raise SecondFactorError(
