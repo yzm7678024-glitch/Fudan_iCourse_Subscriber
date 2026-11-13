@@ -4,7 +4,7 @@ on:
   schedule:
     # Every day at 19:36 BTC (UTC + 8)
     # 设计这个奇怪的时间是为了避免整点时的github队列峰值，避免排队过久。
-    - cron: "36 11 * * *"
+    - cron: "37 11 * * *"
   workflow_dispatch:
 
 permissions:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
 
     steps:
@@ -36,8 +36,13 @@ jobs:
 
       - name: Install ffmpeg
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -version
+          else
+            sudo apt-get update -o Acquire::Retries=3
+            sudo apt-get install -y -o Acquire::Retries=3 ffmpeg
+          fi
+
 
       - name: Cache ASR models
         id: cache-models
