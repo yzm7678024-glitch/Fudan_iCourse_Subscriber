@@ -79,15 +79,28 @@ class ICourseClient:
         self._userinfo = data.get("params") or data.get("data", {})
         return self._userinfo
 
+    
     def check_alive(self) -> bool:
-        """Quick session health check (non-cached)."""
-        try:
-            resp = self.vpn.get(
-                f"{self.base_url}/userapi/v1/infosimple", timeout=10
-            )
-            return resp.status_code == 200 and resp.json().get("code") in (0, 200)
-        except Exception:
-            return False
+        """Check iCourse session twice before declaring it expired."""
+        for attempt in range(2):
+            try:
+                resp = self.vpn.get(
+                    f"{self.base_url}/userapi/v1/infosimple",
+                    timeout=10,
+                )
+                if (
+                    resp.status_code == 200
+                    and resp.json().get("code") in (0, 200)
+                ):
+                    return True
+            except Exception:
+                pass
+
+            if attempt == 0:
+                time.sleep(2)
+
+        return False
+
 
     def sign_video_url(
         self, video_url: str, now: int | None = None
