@@ -361,6 +361,7 @@ def run():
         reporter.run_footer()
         return
 
+   
     scheduler = Scheduler(reporter=reporter)
 
     try:
@@ -371,11 +372,9 @@ def run():
         )
 
     finally:
-        scheduler.shutdown()
-
-    _send_email(emailer, db, reporter, email_items)
-    reporter.run_footer()
-
-
-if __name__ == "__main__":
-    run()
+        try:
+            scheduler.shutdown()
+        finally:
+            # Even when processing fails, send completed summaries.
+            _send_email(emailer, db, reporter, email_items)
+            reporter.run_footer()
