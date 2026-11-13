@@ -37,6 +37,22 @@ BYTES_PER_SAMPLE = 4  # float32
 BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
 SILENCE_GAP_THRESHOLD_SEC = 30 * 60  # 30 min of no speech → suspected cutoff
 
+def _safe_ffmpeg_stderr(raw: bytes) -> str:
+    """Redact URLs and authentication headers from ffmpeg errors."""
+    text = raw.decode(errors="replace")
+    text = re.sub(
+        r'https?://[^\s"\'<>]+',
+        "[redacted URL]",
+        text,
+    )
+    text = re.sub(
+        r"(?im)^.*(?:cookie|authorization):[^\r\n]*",
+        "[redacted header]",
+        text,
+    )
+    return text[-500:]
+
+
 
 # ── Shared resource meter state (network delta tracking) ──────────────────
 _rm_net_last: tuple[float, int, int] | None = None
@@ -488,7 +504,7 @@ class Transcriber:
         # -9/-15: SIGKILL/SIGTERM — the downloader's release() terminates
         # ffmpeg once we're done reading; neither is an ffmpeg failure.
         if rc not in (0, -9, -15, None):
-            stderr_text = stderr_output.decode(errors="replace")
+            stderr_text = _safe_ffmpeg_stderr(stderr_output)
             if "does not contain any stream" in stderr_text:
                 raise NoAudioStreamError(
                     f"ffmpeg found no audio stream (video-only file).\n"
@@ -500,7 +516,7 @@ class Transcriber:
             )
 
         if total_bytes == 0:
-            stderr_text = stderr_output.decode(errors="replace")[-500:]
+            stderr_text = _safe_ffmpeg_stderr(stderr_output)
             raise RuntimeError(
                 f"ffmpeg produced no audio output (0 bytes received).\n"
                 f"stderr (last 500 chars):\n{stderr_text}"
@@ -595,7 +611,7 @@ class Transcriber:
         t_wait = time.time()
         while not os.path.exists(audio_path):
             if ffmpeg_proc.poll() is not None:
-                stderr_text = b"".join(stderr_chunks).decode(errors="replace")[-500:]
+                stderr_text = _safe_ffmpeg_stderr(b"".join(stderr_chunks))
                 raise RuntimeError(
                     f"ffmpeg exited (rc={ffmpeg_proc.returncode}) before "
                     f"writing audio file {audio_path}.\nstderr:\n{stderr_text}"
