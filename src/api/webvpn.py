@@ -6,9 +6,11 @@ Handles:
 - Full 7-step IDP authentication flow against id.fudan.edu.cn
 """
 
+import hmac
+import time
 import html as html_mod
 import re
-from binascii import hexlify, unhexlify
+from binascii import Base32Error, hexlify, unhexlify
 from urllib.parse import urlparse, urlencode, quote, urljoin
 
 import requests
@@ -18,6 +20,43 @@ from Crypto.Cipher import PKCS1_v1_5
 import base64
 
 from src.runtime import config
+
+
+class SecondFactorError(RuntimeError):
+    """Stop automatic retries when second-factor authentication fails."""
+
+
+def totp_code(secret: str, timestamp: float | None = None) -> str:
+    """Generate a six-digit HMAC-SHA1 TOTP code."""
+    normalized = "".join(secret.split()).upper().rstrip("=")
+
+    if not normalized:
+        raise SecondFactorError(
+            "UIS_TOTP_SECRET is missing"
+        )
+
+    try:
+        key = base64.b32decode(
+            normalized + "=" * (-len(normalized) % 8)
+        )
+    except (Base32Error, ValueError):
+        raise SecondFactorError(
+            "UIS_TOTP_SECRET must be a Base32 secret"
+        ) from None
+
+    counter = int(
+        (time.time() if timestamp is None else timestamp) // 30
+    )
+    digest = hmac.digest(
+        key, counter.to_bytes(8, "big"), "sha1"
+    )
+    offset = digest[-1] & 0x0F
+    number = (
+        int.from_bytes(digest[offset:offset + 4], "big")
+        & 0x7FFFFFFF
+    )
+
+    return f"{number % 1_000_000:06d}"
 
 
 def encrypt_host(hostname: str) -> str:
@@ -303,6 +342,15 @@ class WebVPNSession:
                 f"iCourse CAS auth failed (code={data.get('code')})"
             )
 
+        if data.get("second"):
+            data = self._authenticate_totp(
+                data, student_id, lck, entity_id,
+                request_type, via_vpn=True
+            )
+        if data.get("second"):
+            data = self._authenticate_totp(
+                data, student_id, lck, entity_id, request_type
+            )
         login_token = data.get("loginToken", "")
         if not login_token:
             raise RuntimeError("No loginToken in iCourse CAS response")
@@ -534,6 +582,77 @@ class WebVPNSession:
 
         print("    loginToken: OK")
         return login_token
+
+
+    def _authenticate_totp(
+        self,
+        challenge: dict,
+        student_id: str,
+        lck: str,
+        entity_id: str,
+        request_type: str,
+        *,
+        via_vpn: bool = False,
+    ) -> dict:
+        """Complete UIS second-factor authentication."""
+        if "userAndOtp" not in (challenge.get("moduleCodes") or []):
+            raise SecondFactorError(
+                "UIS requires a second factor but does not offer TOTP"
+            )
+
+        if not challenge.get("requestNumber") or not challenge.get("authChainCode"):
+            raise SecondFactorError(
+                "TOTP challenge is missing authentication context"
+            )
+
+        code = totp_code(config.TOTP_SECRET)
+        base = get_vpn_url(config.IDP_BASE) if via_vpn else config.IDP_BASE
+        origin = config.WEBVPN_BASE if via_vpn else config.IDP_BASE
+
+        print("[Login] TOTP second factor...")
+
+        try:
+            resp = self.session.post(
+                f"{base}/idp/authn/authExecute",
+                json={
+                    "authModuleCode": "userAndOtp",
+                    "authChainCode": challenge["authChainCode"],
+                    "entityId": entity_id,
+                    "requestNumber": challenge["requestNumber"],
+                    "requestType": request_type,
+                    "lck": lck,
+                    "authPara": {
+                        "loginName": challenge.get("userName") or student_id,
+                        "otpCode": code,
+                    },
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Referer": f"{base}/ac/",
+                    "Origin": origin,
+                },
+                timeout=60,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except (requests.RequestException, ValueError):
+            raise SecondFactorError(
+                "TOTP request failed; automatic retries stopped"
+            ) from None
+
+        if not isinstance(data, dict) or str(data.get("code")) != "200":
+            raise SecondFactorError(
+                "TOTP authentication failed; check secret and system clock"
+            )
+
+        if data.get("second") or not data.get("loginToken"):
+            raise SecondFactorError(
+                "TOTP did not finish authentication"
+            )
+
+        print("[Login] TOTP OK")
+        return data
+
 
     def _get_cas_ticket(self, login_token: str) -> str:
         """Step 6: Exchange loginToken for a CAS ticket URL."""
