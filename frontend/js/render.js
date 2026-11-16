@@ -119,27 +119,6 @@ function _stashFormulas(mdText) {
   return { text: text, formulas: formulas };
 }
 
-
-  var text = mdText;
-
-  // 1. Stash existing \(...\) and \[...\] (already-LaTeX, protect from double-processing)
-  text = text.replace(/(\\\([\s\S]*?\\\))|(\\\[[\s\S]*?\\\])/g, function (m) {
-    return stash(m);
-  });
-
-  // 2. Stash $$...$$ (must run before $ → to avoid consuming individual $ chars of $$)
-  text = text.replace(/\$\$([\s\S]*?)\$\$/g, function (_, f) {
-    return stash("\\[" + f + "\\]");
-  });
-
-  // 3. Stash $...$ (inline math — non-greedy to pair nearest closing $)
-  text = text.replace(/\$([\s\S]+?)\$/g, function (_, f) {
-    return stash("\\(" + f + "\\)");
-  });
-
-  return { text: text, formulas: formulas };
-}
-
 /** Restore stashed formulas in the HTML output after marked.parse(). */
 
 function _restoreFormulas(html, formulas) {
