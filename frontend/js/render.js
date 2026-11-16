@@ -1,35 +1,23 @@
 /**
- * Markdown + KaTeX rendering pipeline.
- * Sets window.ICS.render global.
- *
- * Depends on CDN globals: marked, DOMPurify, renderMathInElement
- *
- * Pipeline: stash formulas → marked → restore formulas → DOMPurify → KaTeX
- * We stash formula delimiters before marked.parse() because characters like
- * * and _ inside $...$ LaTeX (e.g. D^*, P_n, \sum_{i=1}) would otherwise
- * be treated as markdown emphasis and break the formula structure.
+ * iCourse Markdown + KaTeX renderer.
+ * Protect code first, identify only well-formed math, then render
+ * exclusively the math we explicitly identified.
  */
-
 window.ICS = window.ICS || {};
 
-var _FORMULA_PLACEHOLDER_PREFIX = "";
-var _FORMULA_PLACEHOLDER_SUFFIX = "";
-
-/** Replace $...$ and $$...$$ with placeholders so marked won't touch them. */
+var _FORMULA_PLACEHOLDER_PREFIX = "\uE000";
+var _FORMULA_PLACEHOLDER_SUFFIX = "\uE001";
 
 function _stashFormulas(mdText) {
   var formulas = [];
+  var codeParts = [];
 
   function stash(formula) {
-    var key = _FORMULA_PLACEHOLDER_PREFIX
-      + formulas.length
+    var key = _FORMULA_PLACEHOLDER_PREFIX + formulas.length
       + _FORMULA_PLACEHOLDER_SUFFIX;
     formulas.push(formula);
     return key;
   }
-
-  // 先保护代码，避免将汇编指令中的 $ 当作数学公式。
-  var codeParts = [];
 
   function saveCode(code) {
     var key = "\uE010" + codeParts.length + "\uE011";
@@ -37,81 +25,83 @@ function _stashFormulas(mdText) {
     return key;
   }
 
-  // 1. 保护 Markdown 围栏代码块（``` 或 ~~~）。
+  // Protect fenced code blocks, including shell commands and assembly.
   var lines = String(mdText).split("\n");
   var parts = [];
-
   for (var i = 0; i < lines.length;) {
     var opening = lines[i].match(/^ {0,3}(`{3,}|~{3,})/);
-
     if (!opening) {
       parts.push(lines[i++]);
       continue;
     }
-
     var fence = opening[1];
     var closing = new RegExp(
-      "^ {0,3}" + fence[0]
-      + "{" + fence.length + ",}[ \\t]*$"
+      "^ {0,3}" + fence[0] + "{" + fence.length + ",}[ \\t]*$"
     );
-
     var end = i + 1;
-    while (end < lines.length && !closing.test(lines[end])) {
-      end++;
-    }
+    while (end < lines.length && !closing.test(lines[end])) end++;
     if (end < lines.length) end++;
-
     parts.push(saveCode(lines.slice(i, end).join("\n")));
     i = end;
   }
-
   var text = parts.join("\n");
 
-  // 2. 保护行内代码，如 `addq $1, %rdx`。
+  // Protect backtick-delimited inline code.
   text = text.replace(/(`+)([^\n]*?)\1/g, function (m) {
     return saveCode(m);
   });
 
-  // 3. 兼容未用反引号包裹的汇编立即数。
+  // Protect bare assembly immediates (both $1, %rdx and $0, (%rsp)).
   text = text.replace(
-    /\$-?(?:0x[0-9a-fA-F]+|\d+)(?=\s*,\s*%[a-zA-Z][a-zA-Z0-9]*)/g,
-    function (m) {
-      return saveCode(m);
-    }
+    /\$-?(?:0x[0-9a-fA-F]+|\d+)(?=\s*,)/g,
+    function (m) { return saveCode(m); }
   );
 
-  // 4. 保护原本使用 \( \) 和 \[ \] 的公式。
-  text = text.replace(/\\\(([^\n]*?)\\\)/g, function (m) {
+  // Existing parenthesized inline math: no multiline matches.
+  text = text.replace(/\\\(([^\n]*?)\\\)/g, function (m, body) {
+    if (/[\u3400-\u9fff]/.test(body)) return m;
     return stash(m);
   });
 
-  text = text.replace(/\\\[([\s\S]*?)\\\]/g, function (m) {
+  // Existing bracketed display math: do not swallow prose or headings.
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, function (m, body) {
+    if (body.length > 4000 || /[\u3400-\u9fff]/.test(body) ||
+        /\n\s*\n|\n\s*#{1,6}\s|\n\s*\|/.test(body)) {
+      return m;
+    }
     return stash(m);
   });
 
-  // 5. 多行公式：$$ 独占起止行。
+  // $$ delimiters on their own lines.
   text = text.replace(
     /(^|\n)[ \t]*\$\$[ \t]*\n([\s\S]*?)\n[ \t]*\$\$[ \t]*(?=\n|$)/g,
-    function (_, lead, body) {
+    function (whole, lead, body) {
+      if (body.length > 4000 || /[\u3400-\u9fff]/.test(body) ||
+          /\n\s*\n|\n\s*#{1,6}\s|\n\s*\|/.test(body)) {
+        return whole;
+      }
       return lead + stash("\\[" + body + "\\]");
     }
   );
 
-  // 6. 单行公式：$$E=mc^2$$。
-  text = text.replace(/\$\$([^\n$]+?)\$\$/g, function (_, body) {
+  // $$E=mc^2$$ on one line.
+  text = text.replace(/\$\$([^\n$]+?)\$\$/g, function (whole, body) {
+    if (/[\u3400-\u9fff]/.test(body)) return whole;
     return stash("\\[" + body + "\\]");
   });
 
-  // 7. 行内公式不能跨行，也不能跨越代码区域。
+  // Ordinary inline math. Do not span line breaks or parse Chinese prose.
   text = text.replace(
     /(^|[^\\$])\$([^\n$\uE010\uE011]+?)\$(?!\$)/g,
     function (whole, before, body) {
-      if (/^\s|\s$/.test(body)) return whole;
+      if (/^\s|\s$|[\u3400-\u9fff]/.test(body) || body.length > 500) {
+        return whole;
+      }
       return before + stash("\\(" + body + "\\)");
     }
   );
 
-  // 8. 还原代码，让 marked 正常解析代码块与行内代码。
+  // Restore the original code before the Markdown parser handles it.
   text = text.replace(/\uE010(\d+)\uE011/g, function (_, n) {
     return codeParts[Number(n)];
   });
@@ -119,22 +109,18 @@ function _stashFormulas(mdText) {
   return { text: text, formulas: formulas };
 }
 
-/** Restore stashed formulas in the HTML output after marked.parse(). */
-
 function _restoreFormulas(html, formulas) {
   for (var i = 0; i < formulas.length; i++) {
     var safeFormula = formulas[i]
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
-
     html = html.split(
       _FORMULA_PLACEHOLDER_PREFIX + i + _FORMULA_PLACEHOLDER_SUFFIX
-    ).join(safeFormula);
+    ).join('<span class="ics-math">' + safeFormula + '</span>');
   }
   return html;
 }
-
 
 function _renderMarkdown(mdText) {
   if (!mdText) return "";
@@ -146,14 +132,16 @@ function _renderMarkdown(mdText) {
 
 function _activateKaTeX(element) {
   if (typeof renderMathInElement !== "function") return;
-  renderMathInElement(element, {
-    delimiters: [
-      { left: "$$", right: "$$", display: true },
-      { left: "\\[", right: "\\]", display: true },
-      { left: "\\(", right: "\\)", display: false },
-      // NOTE: $...$ intentionally omitted from KaTeX — converted to \(...\) in _stashFormulas
-    ],
-    throwOnError: false,
+  // Only render formula spans we have validated and stashed. Malformed
+  // delimiters left in ordinary text must not consume entire paragraphs.
+  element.querySelectorAll(".ics-math").forEach(function (node) {
+    renderMathInElement(node, {
+      delimiters: [
+        { left: "\\[", right: "\\]", display: true },
+        { left: "\\(", right: "\\)", display: false },
+      ],
+      throwOnError: false,
+    });
   });
 }
 
