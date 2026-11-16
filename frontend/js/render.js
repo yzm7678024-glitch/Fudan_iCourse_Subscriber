@@ -16,13 +16,109 @@ var _FORMULA_PLACEHOLDER_PREFIX = "";
 var _FORMULA_PLACEHOLDER_SUFFIX = "";
 
 /** Replace $...$ and $$...$$ with placeholders so marked won't touch them. */
+
 function _stashFormulas(mdText) {
   var formulas = [];
-  function stash(replacement) {
-    var key = _FORMULA_PLACEHOLDER_PREFIX + formulas.length + _FORMULA_PLACEHOLDER_SUFFIX;
-    formulas.push(replacement);
+
+  function stash(formula) {
+    var key = _FORMULA_PLACEHOLDER_PREFIX
+      + formulas.length
+      + _FORMULA_PLACEHOLDER_SUFFIX;
+    formulas.push(formula);
     return key;
   }
+
+  // 先保护代码，避免将汇编指令中的 $ 当作数学公式。
+  var codeParts = [];
+
+  function saveCode(code) {
+    var key = "\uE010" + codeParts.length + "\uE011";
+    codeParts.push(code);
+    return key;
+  }
+
+  // 1. 保护 Markdown 围栏代码块（``` 或 ~~~）。
+  var lines = String(mdText).split("\n");
+  var parts = [];
+
+  for (var i = 0; i < lines.length;) {
+    var opening = lines[i].match(/^ {0,3}(`{3,}|~{3,})/);
+
+    if (!opening) {
+      parts.push(lines[i++]);
+      continue;
+    }
+
+    var fence = opening[1];
+    var closing = new RegExp(
+      "^ {0,3}" + fence[0]
+      + "{" + fence.length + ",}[ \\t]*$"
+    );
+
+    var end = i + 1;
+    while (end < lines.length && !closing.test(lines[end])) {
+      end++;
+    }
+    if (end < lines.length) end++;
+
+    parts.push(saveCode(lines.slice(i, end).join("\n")));
+    i = end;
+  }
+
+  var text = parts.join("\n");
+
+  // 2. 保护行内代码，如 `addq $1, %rdx`。
+  text = text.replace(/(`+)([^\n]*?)\1/g, function (m) {
+    return saveCode(m);
+  });
+
+  // 3. 兼容未用反引号包裹的汇编立即数。
+  text = text.replace(
+    /\$-?(?:0x[0-9a-fA-F]+|\d+)(?=\s*,\s*%[a-zA-Z][a-zA-Z0-9]*)/g,
+    function (m) {
+      return saveCode(m);
+    }
+  );
+
+  // 4. 保护原本使用 \( \) 和 \[ \] 的公式。
+  text = text.replace(/\\\(([^\n]*?)\\\)/g, function (m) {
+    return stash(m);
+  });
+
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, function (m) {
+    return stash(m);
+  });
+
+  // 5. 多行公式：$$ 独占起止行。
+  text = text.replace(
+    /(^|\n)[ \t]*\$\$[ \t]*\n([\s\S]*?)\n[ \t]*\$\$[ \t]*(?=\n|$)/g,
+    function (_, lead, body) {
+      return lead + stash("\\[" + body + "\\]");
+    }
+  );
+
+  // 6. 单行公式：$$E=mc^2$$。
+  text = text.replace(/\$\$([^\n$]+?)\$\$/g, function (_, body) {
+    return stash("\\[" + body + "\\]");
+  });
+
+  // 7. 行内公式不能跨行，也不能跨越代码区域。
+  text = text.replace(
+    /(^|[^\\$])\$([^\n$\uE010\uE011]+?)\$(?!\$)/g,
+    function (whole, before, body) {
+      if (/^\s|\s$/.test(body)) return whole;
+      return before + stash("\\(" + body + "\\)");
+    }
+  );
+
+  // 8. 还原代码，让 marked 正常解析代码块与行内代码。
+  text = text.replace(/\uE010(\d+)\uE011/g, function (_, n) {
+    return codeParts[Number(n)];
+  });
+
+  return { text: text, formulas: formulas };
+}
+
 
   var text = mdText;
 
